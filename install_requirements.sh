@@ -6,4 +6,3 @@ pip install pandas==1.1.4
 pip install scikit-learn==0.24.1
 pip install konlpy==0.5.2
 pip install faiss-gpu
-pip install kss

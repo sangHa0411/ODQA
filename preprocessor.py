@@ -3,7 +3,7 @@ import re
 
 class Preprocessor :
     def __init__(self,) :
-        self.base_sub = re.compile(r'\\|\n[*#]*')
+        self.base_sub = re.compile(r'(\\n|\n)[*#]*')
         self.unk_sub = re.compile('[\u3000-\u303f\ud800—\udbff\ue000—\uf8ff]')
         self.outrange_sub = re.compile('[\uffff-\U000e007f]')
 
@@ -36,9 +36,9 @@ class Preprocessor :
         return dataset
 
     def doc_preprocess(self, txt) :
-        txt = self.base_sub.sub(txt, ' ')
-        txt = self.unk_sub.sub(txt, ' ')
-        txt = self.outrange_sub.sub(txt, ' ')
+        txt = self.base_sub.sub(' ', txt)
+        txt = self.unk_sub.sub(' ', txt)
+        txt = self.outrange_sub.sub(' ', txt)
         txt = re.sub('\s+', ' ', txt)
         return txt
 

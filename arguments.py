@@ -27,6 +27,30 @@ class ModelArguments:
         },
     )
 
+class TokenizerArguments :
+    """
+    Arguments for tokenizer optimization.
+    """
+
+    tokenizer_path : Optional[str] = field(
+        default='./Tokenizer',
+        metadata={
+            "help": "Toeknizer directory path"
+        },  
+    )
+    unk_token_data_path : Optional[str] = field(
+        default='unk_characters.csv',
+        metadata={
+            "help": "Frequent tokens which make UNK token"
+        },  
+    )
+    tokenizer_optimization_flag : Optional[bool] = field(
+        default=True,
+        metadata={
+            "help": "Make unused token to frequent vocabulary in Wikipedia data"
+        },  
+    )
+
 
 @dataclass
 class DataTrainingArguments:
@@ -35,7 +59,7 @@ class DataTrainingArguments:
     """
 
     dataset_name: Optional[str] = field(
-        default="../data/train_dataset",
+        default="/opt/ml/project/odqa/data/train_dataset",
         metadata={"help": "The name of the dataset to use."},
     )
     overwrite_cache: bool = field(
@@ -102,3 +126,4 @@ class DataTrainingArguments:
     use_faiss: bool = field(
         default=False, metadata={"help": "Whether to build with faiss"}
     )
+    

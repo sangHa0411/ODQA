@@ -26,8 +26,11 @@ from retrieval import SparseRetrieval
 from arguments import (
     ModelArguments,
     DataTrainingArguments,
+    TokenizerArguments,
 )
 
+from model import SDSNetForQuestionAnswering
+from tokenizer import load_vocab, add_unused, write_vocab
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +40,9 @@ def main():
     # --help flag 를 실행시켜서 확인할 수 도 있습니다.
 
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
+        (ModelArguments, DataTrainingArguments, TrainingArguments, TokenizerArguments)
     )
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, training_args, tokenizer_args= parser.parse_args_into_dataclasses()
     print(model_args.model_name_or_path)
 
     # [참고] argument를 manual하게 수정하고 싶은 경우에 아래와 같은 방식을 사용할 수 있습니다
@@ -72,20 +75,32 @@ def main():
         if model_args.config_name is not None
         else model_args.model_name_or_path,
     )
+
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name
         if model_args.tokenizer_name is not None
         else model_args.model_name_or_path,
-        # 'use_fast' argument를 True로 설정할 경우 rust로 구현된 tokenizer를 사용할 수 있습니다.
-        # False로 설정할 경우 python으로 구현된 tokenizer를 사용할 수 있으며,
-        # rust version이 비교적 속도가 빠릅니다.
-        use_fast=True,
+        use_fast=False,
     )
-    model = AutoModelForQuestionAnswering.from_pretrained(
-        model_args.model_name_or_path,
-        from_tf=bool(".ckpt" in model_args.model_name_or_path),
-        config=config,
-    )
+
+    if tokenizer_args.tokenizer_optimization_flag == True :
+        print('Optimization Tokenzier')
+        tokenizer_path = tokenizer_args.tokenizer_path
+        if os.path.isdir(tokenizer_path) == False :
+            raise NameError('Wrong Tokenizer Directory path')
+    
+        tokenizer.save_pretrained(tokenizer_path)
+        unk_ch_path = os.path.join(tokenizer_path, tokenizer_args.unk_token_data_path)
+        vocab_path = os.path.join(tokenizer_path, 'vocab.txt')
+    
+        vocab_map = load_vocab(vocab_path)
+        add_unused(vocab_map, tokenizer, unk_ch_path)
+        write_vocab(vocab_map, vocab_path)
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, use_fast=False)
+
+    model = SDSNetForQuestionAnswering(model_name=model_args.model_name_or_path, 
+        data_args=data_args, 
+        config=config)
 
     print(
         type(training_args),

@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import BertPreTrainedModel, BertModel
+from transformers import RobertaModel, RobertaPreTrainedModel
 from transformers.modeling_outputs import QuestionAnsweringModelOutput
 
 class ConvLayer(nn.Module) :
@@ -23,16 +23,22 @@ class ConvNet(nn.Module) :
         super(ConvNet, self).__init__()
         conv_net = [ConvLayer(seq_size, feature_size, intermediate_size) for i in range(layer_size)]
         self.conv_net = nn.Sequential(*conv_net)
+        self.init_weights()
+
+    def init_weights(self) :
+        for p in self.parameters() :
+            if p.requires_grad == True and p.dim() > 1:
+                nn.init.kaiming_uniform_(p)
 
     def forward(self, x) :
         y = self.conv_net(x)
         return y
 
-class SDSNetForQuestionAnswering(BertPreTrainedModel):
+class SDSNetForQuestionAnswering(RobertaPreTrainedModel):
     def __init__(self, model_name, data_args, config):
-        super().__init__(config)
+        super(SDSNetForQuestionAnswering, self).__init__(config)
         self.num_labels = config.num_labels
-        self.bert = BertModel.from_pretrained(model_name, 
+        self.bert = RobertaModel.from_pretrained(model_name, 
             config=config, 
             add_pooling_layer=False
         )
@@ -43,7 +49,6 @@ class SDSNetForQuestionAnswering(BertPreTrainedModel):
             intermediate_size=data_args.cnn_intermediate_size)
 
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
-        self.init_weights()
 
     def forward(
         self,
@@ -76,7 +81,6 @@ class SDSNetForQuestionAnswering(BertPreTrainedModel):
 
         sequence_output = outputs[0] # (batch_size, seq_size, hidden_size) : [CLS] Token
         sequence_output = self.cnn_head(sequence_output)
-
 
         logits = self.qa_outputs(sequence_output) # (batch_size, seq_size, label_size=2)
         start_logits, end_logits = logits.split(1, dim=-1)  

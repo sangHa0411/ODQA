@@ -6,7 +6,7 @@ from typing import List, Callable, NoReturn, NewType, Any
 import dataclasses
 from datasets import load_metric, load_from_disk, Dataset, DatasetDict
 
-from transformers import AutoConfig, AutoModelForQuestionAnswering, AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer, AutoModelForQuestionAnswering
 
 from transformers import (
     DataCollatorWithPadding,
@@ -25,12 +25,16 @@ from retrieval import SparseRetrieval
 
 from arguments import (
     ModelArguments,
+    LoggingArguments,
     DataTrainingArguments,
     TokenizerArguments,
 )
 
 from model import SDSNetForQuestionAnswering
-from tokenizer import load_vocab, add_unused, write_vocab
+from tokenizer import TokenizerOptimization
+from preprocessor import Preprocessor
+from dotenv import load_dotenv
+import wandb
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +44,24 @@ def main():
     # --help flag 를 실행시켜서 확인할 수 도 있습니다.
 
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments, TokenizerArguments)
+        (ModelArguments, DataTrainingArguments, LoggingArguments, TrainingArguments, TokenizerArguments)
     )
-    model_args, data_args, training_args, tokenizer_args= parser.parse_args_into_dataclasses()
+    model_args, data_args, log_args, training_args, tokenizer_args= parser.parse_args_into_dataclasses()
     print(model_args.model_name_or_path)
 
-    # [참고] argument를 manual하게 수정하고 싶은 경우에 아래와 같은 방식을 사용할 수 있습니다
-    # training_args.per_device_train_batch_size = 4
-    # print(training_args.per_device_train_batch_size)
+    training_args.num_train_epochs = 1
+
+    load_dotenv(dotenv_path=log_args.dotenv_path)
+    WANDB_AUTH_KEY = os.getenv("WANDB_AUTH_KEY")
+    wandb.login(key=WANDB_AUTH_KEY)
+
+    wandb.init(
+        entity="sangha0411",
+        project=log_args.project_name,
+        name=log_args.wandb_name + '/train',
+        group=log_args.group_name,
+    )
+    wandb.config.update(training_args)
 
     print(f"model is from {model_args.model_name_or_path}")
     print(f"data is from {data_args.dataset_name}")
@@ -65,7 +79,11 @@ def main():
     # 모델을 초기화하기 전에 난수를 고정합니다.
     set_seed(training_args.seed)
 
+    data_preprocessor = Preprocessor()
+    print('\nStep1 : Data Preprocessing \n')
     datasets = load_from_disk(data_args.dataset_name)
+    datasets.cleanup_cache_files()
+    datasets = datasets.map(data_preprocessor.preprocess4train)
     print(datasets)
 
     # AutoConfig를 이용하여 pretrained model 과 tokenizer를 불러옵니다.
@@ -80,23 +98,22 @@ def main():
         model_args.tokenizer_name
         if model_args.tokenizer_name is not None
         else model_args.model_name_or_path,
-        use_fast=False,
+        use_fast=True,
     )
 
     if tokenizer_args.tokenizer_optimization_flag == True :
-        print('Optimization Tokenzier')
+        print('\nStep2 : Optimization Tokenzier\n')
         tokenizer_path = tokenizer_args.tokenizer_path
         if os.path.isdir(tokenizer_path) == False :
             raise NameError('Wrong Tokenizer Directory path')
     
         tokenizer.save_pretrained(tokenizer_path)
-        unk_ch_path = os.path.join(tokenizer_path, tokenizer_args.unk_token_data_path)
-        vocab_path = os.path.join(tokenizer_path, 'vocab.txt')
-    
-        vocab_map = load_vocab(vocab_path)
-        add_unused(vocab_map, tokenizer, unk_ch_path)
-        write_vocab(vocab_map, vocab_path)
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, use_fast=False)
+        unk_token_path = tokenizer_args.unk_token_data_path
+
+        optimizer = TokenizerOptimization(tokenizer_path, unk_token_path)
+        optimizer.optimize(tokenizer)
+
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, use_fast=True)
 
     model = SDSNetForQuestionAnswering(model_name=model_args.model_name_or_path, 
         data_args=data_args, 
@@ -112,6 +129,7 @@ def main():
 
     # do_train mrc model 혹은 do_eval mrc model
     if training_args.do_train or training_args.do_eval:
+        print('\nStep3 : Training and Evaluation')
         run_mrc(data_args, training_args, model_args, datasets, tokenizer, model)
 
 

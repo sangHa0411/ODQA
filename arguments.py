@@ -9,7 +9,7 @@ class ModelArguments:
     """
 
     model_name_or_path: str = field(
-        default="klue/bert-base",
+        default="klue/roberta-large",
         metadata={
             "help": "Path to pretrained model or model identifier from huggingface.co/models"
         },
@@ -27,6 +27,7 @@ class ModelArguments:
         },
     )
 
+@dataclass
 class TokenizerArguments :
     """
     Arguments for tokenizer optimization.
@@ -39,7 +40,7 @@ class TokenizerArguments :
         },  
     )
     unk_token_data_path : Optional[str] = field(
-        default='unk_characters.csv',
+        default='./Tokenizer/unk_characters.csv',
         metadata={
             "help": "Frequent tokens which make UNK token"
         },  
@@ -127,3 +128,29 @@ class DataTrainingArguments:
         default=False, metadata={"help": "Whether to build with faiss"}
     )
     
+@dataclass
+class LoggingArguments:
+    """
+    Arguments pertaining to what data we are going to input our model for training and eval.
+    """
+
+    wandb_name: Optional[str] = field(
+        default="klue/roberta-large",
+        metadata={"help": "wandb name"},
+    )
+
+    dotenv_path: Optional[str] = field(
+        default='./wandb.env',
+        metadata={"help":'input your dotenv path'},
+    )
+
+    project_name: Optional[str] = field(
+        default="odqa",
+        metadata={"help": "project name"},
+    )
+
+    group_name : Optional[str] = field(
+        default="sds-net",
+        metadata={"help": "group"},
+    )
+

@@ -32,11 +32,9 @@ from transformers.trainer_utils import get_last_checkpoint
 
 from datasets import DatasetDict
 from arguments import (
-    ModelArguments,
     DataTrainingArguments,
 )
 
-import kss
 from konlpy.tag import Mecab
 
 logger = logging.getLogger(__name__)
@@ -51,35 +49,25 @@ def set_seed(seed: int = 42):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
-def get_sentence(offsets, sen_ids) :
-    start, end = offsets[0], offsets[1]
-    sen_size = len(sen_ids) - 1
-    for i in range(sen_size) :
-        sen_start, sen_end = sen_ids[i], sen_ids[i+1]
-        if sen_start <= start and end <= sen_end :
-            return i
-    return -1
-
-def postprocess(sen, span, tokenizer) :
-    assert span in sen and hasattr(tokenizer, 'pos')
-    span_start = sen.index(span)
-    span_end = span_start + len(span)
-
-    pos_data = tokenizer.pos(sen)
-    tok_idx = 0
+def postprocess(pos_data, context, offsets) :
+    span_start, span_end = offsets[0], offsets[1]
 
     post_start = -1
     post_end = -1
 
+    tok_idx = 0
     for pos in pos_data :
         tok_span, tok_type = pos
 
-        if sen[tok_idx] != tok_span[0] :
+        while context[tok_idx] != tok_span[0] :
             tok_idx += 1
 
         tok_size = len(tok_span)    
         tok_start = tok_idx
         tok_end = tok_idx + tok_size
+
+        if context[tok_start:tok_end] != tok_span :
+            raise IndexError ('Wrong token Index')
 
         if tok_start <= span_start and span_start < tok_end :
             post_start = tok_start
@@ -91,9 +79,8 @@ def postprocess(sen, span, tokenizer) :
 
         tok_idx += tok_size
 
-    post_span = sen[post_start:post_end]
-    return post_span
-
+    return context[span_start:span_end] if post_start == post_end else \
+        context[post_start:post_end]
 
 
 def postprocess_qa_predictions(
@@ -108,6 +95,8 @@ def postprocess_qa_predictions(
     prefix: Optional[str] = None,
     is_world_process_zero: bool = True,
 ):
+
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     assert (
         len(predictions) == 2
@@ -230,26 +219,14 @@ def postprocess_qa_predictions(
 
         # offset을 사용하여 original context에서 answer text를 수집합니다.
         # post-processing component 2, context에서 정답을 추출하는 방식
+        mecab = Mecab()
         context = example["context"]
-
-        passages = context.split('\n\n')
-        sen_data = []
-        for p in passages :
-            sen_data.extend(kss.split_sentences(p))
-        sen_ids = [context.index(sen) for sen in sen_data] + [len(context)]
-
-        meacb = Mecab()
+        pos_data = mecab.pos(context)
 
         for pred in predictions:
             offsets = pred.pop("offsets")
-            sen_id = get_sentence(offsets, sen_ids)
-            if sen_id != -1 :
-                sen = sen_data[sen_id]
-                span = context[offsets[0] : offsets[1]]
-                pred["text"] = postprocess(sen, span, meacb)
-            else :
-                pred["text"] = context[offsets[0] : offsets[1]]
-
+            pred["text"] = postprocess(pos_data, context, offsets)
+            
         # rare edge case에는 null이 아닌 예측이 하나도 없으며 failure를 피하기 위해 fake prediction을 만듭니다.
         if len(predictions) == 0 or (
             len(predictions) == 1 and predictions[0]["text"] == ""

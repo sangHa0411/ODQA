@@ -49,8 +49,6 @@ def main():
     model_args, data_args, log_args, training_args, tokenizer_args= parser.parse_args_into_dataclasses()
     print(model_args.model_name_or_path)
 
-    training_args.num_train_epochs = 1
-
     load_dotenv(dotenv_path=log_args.dotenv_path)
     WANDB_AUTH_KEY = os.getenv("WANDB_AUTH_KEY")
     wandb.login(key=WANDB_AUTH_KEY)

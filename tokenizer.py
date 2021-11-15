@@ -41,7 +41,7 @@ class TokenizerOptimization :
         for i in range(unused_size) :
             unused_idx = unused_start + i
             data = unk_ch_df.iloc[i]
-            unk_ch = data['Character']
+            unk_ch = data['Token']
             vocab_map[unused_idx] = unk_ch
 
     def load_tokenizer_json(self) :

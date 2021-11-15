@@ -40,7 +40,7 @@ class TokenizerArguments :
         },  
     )
     unk_token_data_path : Optional[str] = field(
-        default='./Tokenizer/unk_characters.csv',
+        default='./Tokenizer/unk_tokens.csv',
         metadata={
             "help": "Frequent tokens which make UNK token"
         },  

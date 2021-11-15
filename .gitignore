@@ -1,3 +1,6 @@
 Experiment/*
 Tokenizer/*
+Output/*
+wandb/*
+*.sh
 __pycache__/*

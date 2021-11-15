@@ -36,16 +36,12 @@ from arguments import (
     DataTrainingArguments,
 )
 
+import kss
+from konlpy.tag import Mecab
 
 logger = logging.getLogger(__name__)
 
-
 def set_seed(seed: int = 42):
-    """
-    seed 고정하는 함수 (random, numpy, torch)
-    Args:
-        seed (:obj:`int`): The seed to set.
-    """
     random.seed(seed)
     np.random.seed(seed)
     if is_torch_available():
@@ -54,6 +50,50 @@ def set_seed(seed: int = 42):
         torch.cuda.manual_seed_all(seed)  # if use multi-GPU
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+def get_sentence(offsets, sen_ids) :
+    start, end = offsets[0], offsets[1]
+    sen_size = len(sen_ids) - 1
+    for i in range(sen_size) :
+        sen_start, sen_end = sen_ids[i], sen_ids[i+1]
+        if sen_start <= start and end <= sen_end :
+            return i
+    return -1
+
+def postprocess(sen, span, tokenizer) :
+    assert span in sen and hasattr(tokenizer, 'pos')
+    span_start = sen.index(span)
+    span_end = span_start + len(span)
+
+    pos_data = tokenizer.pos(sen)
+    tok_idx = 0
+
+    post_start = -1
+    post_end = -1
+
+    for pos in pos_data :
+        tok_span, tok_type = pos
+
+        if sen[tok_idx] != tok_span[0] :
+            tok_idx += 1
+
+        tok_size = len(tok_span)    
+        tok_start = tok_idx
+        tok_end = tok_idx + tok_size
+
+        if tok_start <= span_start and span_start < tok_end :
+            post_start = tok_start
+    
+        if tok_start < span_end and span_end <= tok_end :
+            post_end = tok_end
+            if tok_type.startswith('J') :
+                post_end -= len(tok_span)
+
+        tok_idx += tok_size
+
+    post_span = sen[post_start:post_end]
+    return post_span
+
 
 
 def postprocess_qa_predictions(
@@ -68,37 +108,7 @@ def postprocess_qa_predictions(
     prefix: Optional[str] = None,
     is_world_process_zero: bool = True,
 ):
-    """
-    Post-processes : qa model의 prediction 값을 후처리하는 함수
-    모델은 start logit과 end logit을 반환하기 때문에, 이를 기반으로 original text로 변경하는 후처리가 필요함
 
-    Args:
-        examples: 전처리 되지 않은 데이터셋 (see the main script for more information).
-        features: 전처리가 진행된 데이터셋 (see the main script for more information).
-        predictions (:obj:`Tuple[np.ndarray, np.ndarray]`):
-            모델의 예측값 :start logits과 the end logits을 나타내는 two arrays              첫번째 차원은 :obj:`features`의 element와 갯수가 맞아야함.
-        version_2_with_negative (:obj:`bool`, `optional`, defaults to :obj:`False`):
-            정답이 없는 데이터셋이 포함되어있는지 여부를 나타냄
-        n_best_size (:obj:`int`, `optional`, defaults to 20):
-            답변을 찾을 때 생성할 n-best prediction 총 개수
-        max_answer_length (:obj:`int`, `optional`, defaults to 30):
-            생성할 수 있는 답변의 최대 길이
-        null_score_diff_threshold (:obj:`float`, `optional`, defaults to 0):
-            null 답변을 선택하는 데 사용되는 threshold
-            : if the best answer has a score that is less than the score of
-            the null answer minus this threshold, the null answer is selected for this example (note that the score of
-            the null answer for an example giving several features is the minimum of the scores for the null answer on
-            each feature: all features must be aligned on the fact they `want` to predict a null answer).
-            Only useful when :obj:`version_2_with_negative` is :obj:`True`.
-        output_dir (:obj:`str`, `optional`):
-            아래의 값이 저장되는 경로
-            dictionary : predictions, n_best predictions (with their scores and logits) if:obj:`version_2_with_negative=True`,
-            dictionary : the scores differences between best and null answers
-        prefix (:obj:`str`, `optional`):
-            dictionary에 `prefix`가 포함되어 저장됨
-        is_world_process_zero (:obj:`bool`, `optional`, defaults to :obj:`True`):
-            이 프로세스가 main process인지 여부(logging/save를 수행해야 하는지 여부를 결정하는 데 사용됨)
-    """
     assert (
         len(predictions) == 2
     ), "`predictions` should be a tuple with two elements (start_logits, end_logits)."
@@ -221,9 +231,24 @@ def postprocess_qa_predictions(
         # offset을 사용하여 original context에서 answer text를 수집합니다.
         # post-processing component 2, context에서 정답을 추출하는 방식
         context = example["context"]
+
+        passages = context.split('\n\n')
+        sen_data = []
+        for p in passages :
+            sen_data.extend(kss.split_sentences(p))
+        sen_ids = [context.index(sen) for sen in sen_data] + [len(context)]
+
+        meacb = Mecab()
+
         for pred in predictions:
             offsets = pred.pop("offsets")
-            pred["text"] = context[offsets[0] : offsets[1]]
+            sen_id = get_sentence(offsets, sen_ids)
+            if sen_id != -1 :
+                sen = sen_data[sen_id]
+                span = context[offsets[0] : offsets[1]]
+                pred["text"] = postprocess(sen, span, meacb)
+            else :
+                pred["text"] = context[offsets[0] : offsets[1]]
 
         # rare edge case에는 null이 아닌 예측이 하나도 없으며 failure를 피하기 위해 fake prediction을 만듭니다.
         if len(predictions) == 0 or (

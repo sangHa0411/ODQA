@@ -98,15 +98,16 @@ def main():
         use_fast=True,
     )
 
+    print('\nStep2 : Make Model and Load Weight\n')
     model = SDSNetForQuestionAnswering(model_name='klue/roberta-large', 
         data_args=data_args, 
         config=config)
-
     checkpoint = torch.load(os.path.join(model_args.model_name_or_path, 'pytorch_model.bin'))
     model.load_state_dict(checkpoint)
 
     # True일 경우 : run passage retrieval
     if data_args.eval_retrieval:
+        print('\nStep3 : Retrieve Wiki Data\n')
         datasets = run_sparse_retrieval(
             tokenizer.tokenize,
             datasets,
@@ -116,6 +117,7 @@ def main():
 
     # eval or predict mrc model
     if training_args.do_eval or training_args.do_predict:
+        print('\nStep4 : Evaluate Model\n')
         run_mrc(data_args, training_args, model_args, datasets, tokenizer, model)
     
 def run_sparse_retrieval(

@@ -1,14 +1,9 @@
-"""
-Open-Domain Question Answering 을 수행하는 inference 코드 입니다.
-
-대부분의 로직은 train.py 와 비슷하나 retrieval, predict 부분이 추가되어 있습니다.
-"""
-
-
 import logging
+import os
 import sys
 from typing import Callable, List, Dict, NoReturn, Tuple
 
+import torch
 import numpy as np
 
 from datasets import (
@@ -37,9 +32,14 @@ from retrieval import SparseRetrieval
 
 from arguments import (
     ModelArguments,
+    LoggingArguments,
     DataTrainingArguments,
 )
 
+from model import SDSNetForQuestionAnswering
+from preprocessor import Preprocessor
+from dotenv import load_dotenv
+import wandb
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +49,21 @@ def main():
     # --help flag 를 실행시켜서 확인할 수 도 있습니다.
 
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
+        (ModelArguments, DataTrainingArguments, LoggingArguments, TrainingArguments)
     )
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, log_args, training_args = parser.parse_args_into_dataclasses()
 
-    training_args.do_train = True
+    load_dotenv(dotenv_path=log_args.dotenv_path)
+    WANDB_AUTH_KEY = os.getenv("WANDB_AUTH_KEY")
+    wandb.login(key=WANDB_AUTH_KEY)
+
+    wandb.init(
+        entity="sangha0411",
+        project=log_args.project_name,
+        name=log_args.wandb_name + '/inference',
+        group=log_args.group_name,
+    )
+    wandb.config.update(training_args)
 
     print(f"model is from {model_args.model_name_or_path}")
     print(f"data is from {data_args.dataset_name}")
@@ -71,27 +81,29 @@ def main():
     # 모델을 초기화하기 전에 난수를 고정합니다.
     set_seed(training_args.seed)
 
+    data_preprocessor = Preprocessor()
+    print('\nStep1 : Data Preprocessing \n')
     datasets = load_from_disk(data_args.dataset_name)
+    datasets.cleanup_cache_files()
+    datasets = datasets.map(data_preprocessor.preprocess4train)
     print(datasets)
 
     # AutoConfig를 이용하여 pretrained model 과 tokenizer를 불러옵니다.
     # argument로 원하는 모델 이름을 설정하면 옵션을 바꿀 수 있습니다.
     config = AutoConfig.from_pretrained(
-        model_args.config_name
-        if model_args.config_name
-        else model_args.model_name_or_path,
+        model_args.model_name_or_path,
     )
     tokenizer = AutoTokenizer.from_pretrained(
-        model_args.tokenizer_name
-        if model_args.tokenizer_name
-        else model_args.model_name_or_path,
+        model_args.model_name_or_path,
         use_fast=True,
     )
-    model = AutoModelForQuestionAnswering.from_pretrained(
-        model_args.model_name_or_path,
-        from_tf=bool(".ckpt" in model_args.model_name_or_path),
-        config=config,
-    )
+
+    model = SDSNetForQuestionAnswering(model_name='klue/roberta-large', 
+        data_args=data_args, 
+        config=config)
+
+    checkpoint = torch.load(os.path.join(model_args.model_name_or_path, 'pytorch_model.bin'))
+    model.load_state_dict(checkpoint)
 
     # True일 경우 : run passage retrieval
     if data_args.eval_retrieval:
@@ -105,14 +117,13 @@ def main():
     # eval or predict mrc model
     if training_args.do_eval or training_args.do_predict:
         run_mrc(data_args, training_args, model_args, datasets, tokenizer, model)
-
-
+    
 def run_sparse_retrieval(
     tokenize_fn: Callable[[str], List[str]],
     datasets: DatasetDict,
     training_args: TrainingArguments,
     data_args: DataTrainingArguments,
-    data_path: str = "../data",
+    data_path: str = "/opt/ml/project/odqa/data/",
     context_path: str = "wikipedia_documents.json",
 ) -> DatasetDict:
 
@@ -121,14 +132,7 @@ def run_sparse_retrieval(
         tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
     )
     retriever.get_sparse_embedding()
-
-    if data_args.use_faiss:
-        retriever.build_faiss(num_clusters=data_args.num_clusters)
-        df = retriever.retrieve_faiss(
-            datasets["validation"], topk=data_args.top_k_retrieval
-        )
-    else:
-        df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+    df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
 
     # test data 에 대해선 정답이 없으므로 id question context 로만 데이터셋이 구성됩니다.
     if training_args.do_predict:

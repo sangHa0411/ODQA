@@ -46,7 +46,8 @@ class SDSNetForQuestionAnswering(RobertaPreTrainedModel):
         self.cnn_head = ConvNet(layer_size=data_args.cnn_layer_size, 
             seq_size=data_args.max_seq_length,
             feature_size=config.hidden_size,
-            intermediate_size=data_args.cnn_intermediate_size)
+            intermediate_size=data_args.cnn_intermediate_size
+        )
 
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 

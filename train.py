@@ -6,6 +6,7 @@ from typing import List, Callable, NoReturn, NewType, Any
 import dataclasses
 from datasets import load_metric, load_from_disk, Dataset, DatasetDict
 
+import torch
 from transformers import AutoConfig, AutoTokenizer, AutoModelForQuestionAnswering
 
 from transformers import (
@@ -307,7 +308,10 @@ def run_mrc(
     # flag가 True이면 이미 max length로 padding된 상태입니다.
     # 그렇지 않다면 data collator에서 padding을 진행해야합니다.
     data_collator = DataCollatorWithPadding(
-        tokenizer, padding='max_length', max_length=data_args.max_seq_length,
+        tokenizer=tokenizer, 
+        padding='max_length', 
+        max_length=data_args.max_seq_length,
+        pad_to_multiple_of=8 if training_args.fp16 else None
     )
 
     # Post-processing:

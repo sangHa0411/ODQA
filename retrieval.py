@@ -44,12 +44,14 @@ class SparseRetrieval:
 
         print('Preprocessing Wiki Data')
         preprocessor = Preprocessor()
-        contexts = list(map(preprocessor.doc_preprocess, contexts))
-        print('Remove Duplicate Data')
-        self.contexts = list(set(contexts))
+        self.contexts = []
+        for con in tqdm(contexts) : 
+            doc = preprocessor.doc_preprocess(con)
+            if doc not in self.contexts :
+                self.contexts.append(doc)
 
-        print(f"Lengths of unique contexts : {len(self.contexts)}")
         self.ids = list(range(len(self.contexts)))
+        print('Wikipedia data size : %d' %len(self.contexts))
 
         self.p_embedding = None  # get_sparse_embedding()로 생성합니다
         self.indexer = None  # build_faiss()로 생성합니다.

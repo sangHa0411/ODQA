@@ -68,7 +68,7 @@ class DataTrainingArguments:
         metadata={"help": "Overwrite the cached training and evaluation sets"},
     )
     preprocessing_num_workers: Optional[int] = field(
-        default=None,
+        default=2,
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
     max_seq_length: int = field(
@@ -93,8 +93,7 @@ class DataTrainingArguments:
     pad_to_max_length: bool = field(
         default=False,
         metadata={
-            "help": "Whether to pad all samples to `max_seq_length`. "
-            "If False, will pad the samples dynamically when batching to the maximum length in the batch (which can "
+            "help": "Whether to pad all samples to `max_ when batching to the maximum length in the batch (which can "
             "be faster on GPU but will be slower on TPU)."
         },
     )

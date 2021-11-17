@@ -13,11 +13,7 @@ from typing import List, Tuple, NoReturn, Any, Optional, Union
 from rank_bm25 import BM25Plus
 from preprocessor import Preprocessor
 
-from datasets import (
-    Dataset,
-    load_from_disk,
-    concatenate_datasets,
-)
+from datasets import Dataset
 
 @contextmanager
 def timer(name):
@@ -89,22 +85,23 @@ class SparseRetrieval:
         for idx, example in enumerate(
             tqdm(dataset, desc="Sparse retrieval: ")
         ):
-            tmp = {
-                # Query와 해당 id를 반환합니다.
-                "question": example["question"],
-                "id": example["id"],
-                # Retrieve한 Passage의 id, context를 반환합니다.
-                "context_id": doc_indices[idx],
-                "context": " ".join(
-                    [self.contexts[pid] for pid in doc_indices[idx]]
-                ),
-            }
-            if "context" in example.keys() and "answers" in example.keys():
-                # validation 데이터를 사용하면 ground_truth context와 answer도 반환합니다.
-                tmp["original_context"] = example["context"]
-                tmp["answers"] = example["answers"]
-            total.append(tmp)
 
+            for i, pid in enumerate(doc_indices[idx]) :
+                tmp = {
+                    "question" : example["question"],
+                    "id" : example["id"],
+                    "context_id" : pid,
+                    "context" : self.contexts[pid],
+                    "top_k" : i
+                }
+
+                # for validation
+                if "context" in example.keys() and "answers" in example.keys() :
+                    tmp["original_context"] = example["context"]
+                    tmp["answers"] = example["answers"]
+
+                total.append(tmp)
+                
         cqas = pd.DataFrame(total)
         return cqas
 

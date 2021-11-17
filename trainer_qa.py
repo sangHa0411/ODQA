@@ -17,8 +17,7 @@ Question-Answering task와 관련된 'Trainer'의 subclass 코드 입니다.
 """
 
 from transformers import Trainer, is_datasets_available, is_torch_tpu_available
-from transformers.trainer_utils import PredictionOutput
-
+from transformers.trainer_utils import PredictionOutput, EvalPrediction
 
 if is_datasets_available():
     import datasets
@@ -65,7 +64,6 @@ class QuestionAnsweringTrainer(Trainer):
                 eval_examples, eval_dataset, output.predictions, self.args
             )
             metrics = self.compute_metrics(eval_preds)
-
             self.log(metrics)
         else:
             metrics = {}

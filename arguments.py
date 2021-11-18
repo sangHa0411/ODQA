@@ -78,16 +78,16 @@ class DataTrainingArguments:
             "than this will be truncated, sequences shorter will be padded."
         },
     )
-    cnn_layer_size: int = field(
+    layer_size: int = field(
         default=3,
         metadata={
-            "help": "CNN head layer size at bert model head"
+            "help": "head layer size at bert model head"
         },
     )
-    cnn_intermediate_size: int = field(
+    intermediate_size: int = field(
         default=512,
         metadata={
-            "help": "Intermediate node size of CNN head"
+            "help": "Intermediate node size of head layer"
         },
     )
     pad_to_max_length: bool = field(

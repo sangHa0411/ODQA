@@ -77,32 +77,41 @@ class SparseRetrieval:
         assert self.p_embedding is not None and isinstance(dataset, Dataset) 
         # Retrieve한 Passage를 pd.DataFrame으로 반환합니다.
             
-        total = []
-        with timer("query exhaustive search"):
-            doc_scores, doc_indices = self.get_relevant_doc(
-                dataset["question"], k=topk
-            )
-        for idx, example in enumerate(
-            tqdm(dataset, desc="Sparse retrieval: ")
-        ):
+        df_name = f"validation_retrieval_{topk}.json"
+        df_path = os.path.join(self.data_path, df_name)
 
-            for i, pid in enumerate(doc_indices[idx]) :
+        if os.path.isfile(df_path) :
+            print('Load Retrieval Data')
+            cqas = pd.read_json(df_path)
+        else :
+            total = []
+            with timer("query exhaustive search"):
+                doc_scores, doc_indices = self.get_relevant_doc(
+                    dataset["question"], k=topk
+                )
+            for idx, example in enumerate(
+                tqdm(dataset, desc="Sparse retrieval: ")
+            ):
+
                 tmp = {
-                    "question" : example["question"],
-                    "id" : example["id"],
-                    "context_id" : pid,
-                    "context" : self.contexts[pid],
-                    "top_k" : i
+                    # Query와 해당 id를 반환합니다.
+                    "question": example["question"],
+                    "id": example["id"],
+                    # Retrieve한 Passage의 id, context를 반환합니다.
+                    "context_id": doc_indices[idx],
+                    "context": " ".join(
+                        [self.contexts[pid] for pid in doc_indices[idx]]),
                 }
-
-                # for validation
-                if "context" in example.keys() and "answers" in example.keys() :
+                if "context" in example.keys() and "answers" in example.keys():
+                    # validation 데이터를 사용하면 ground_truth context와 answer도 반환합니다.
                     tmp["original_context"] = example["context"]
                     tmp["answers"] = example["answers"]
-
                 total.append(tmp)
-                
-        cqas = pd.DataFrame(total)
+  
+            cqas = pd.DataFrame(total)
+            cqas.to_json(df_path)
+            print('Write Retrieval Data')
+
         return cqas
 
     def get_relevant_doc(

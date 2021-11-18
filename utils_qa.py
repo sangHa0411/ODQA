@@ -31,7 +31,6 @@ from transformers import is_torch_available, PreTrainedTokenizerFast, TrainingAr
 from transformers.trainer_utils import get_last_checkpoint
 
 from datasets import DatasetDict
-from transformers.utils.dummy_pt_objects import BartForCausalLM
 from arguments import (
     DataTrainingArguments,
 )
@@ -85,7 +84,7 @@ def postprocess(pos_data, context, offsets) :
 
 
 def postprocess_qa_predictions(
-    examples, 
+    examples,
     features,
     predictions: Tuple[np.ndarray, np.ndarray],
     n_best_size: int = 20,
@@ -105,16 +104,10 @@ def postprocess_qa_predictions(
     ), f"Got {len(predictions[0])} predictions and {len(features)} features."
 
     # example과 mapping되는 feature 생성
-    example_id_to_index = collections.defaultdict(dict)
-    for i in range(len(examples)) : 
-        example_id, example_topk = examples[i]['id'], examples[i]['top_k']
-        example_id_to_index[example_id][example_topk] = i
-
+    example_id_to_index = {k: i for i, k in enumerate(examples["id"])}
     features_per_example = collections.defaultdict(list)
-    for i in range(len(features)) :
-        feature_id, feature_topk = features[i]['example_id'], features[i]['example_top_k']
-        index = example_id_to_index[feature_id][feature_topk]
-        features_per_example[index].append(i) # per each example, it has multiple features
+    for i, feature in enumerate(features):
+        features_per_example[example_id_to_index[feature["example_id"]]].append(i) # per each example, it has multiple features
 
     # prediction, nbest에 해당하는 OrderedDict 생성합니다.
     all_predictions = collections.OrderedDict()
@@ -127,9 +120,9 @@ def postprocess_qa_predictions(
     )
 
     # 전체 example들에 대한 main Loop
-    for example_index, example in enumerate(tqdm(examples)): # 오류 부분 -> 1200 까지 진행하는데 features_per_example는 240까지 밖에 없음
+    for example_index, example in enumerate(tqdm(examples)):
+        # 해당하는 현재 example index
         feature_indices = features_per_example[example_index]
-        min_null_prediction = None
         prelim_predictions = []
 
         # 현재 example에 대한 모든 feature 생성합니다.
@@ -143,21 +136,6 @@ def postprocess_qa_predictions(
             token_is_max_context = features[feature_index].get(
                 "token_is_max_context", None
             )
-
-            # minimum null prediction을 업데이트 합니다.
-            # first time or min_null_prediction['score'] is bigger than feature_null_score
-            # make the lowest value be min_null_prediction
-            feature_null_score = start_logits[0] + end_logits[0]
-            if (
-                min_null_prediction is None
-                or min_null_prediction["score"] > feature_null_score
-            ): 
-                min_null_prediction = {
-                    "offsets": (0, 0),
-                    "score": feature_null_score,
-                    "start_logit": start_logits[0],
-                    "end_logit": end_logits[0],
-                }
 
             # `n_best_size`보다 큰 start and end logits을 살펴봅니다.
             # argsort를 역순으로 정렬, logit 값이 큰 순서대로 index를 추출한다. size = n_best_size
@@ -187,7 +165,6 @@ def postprocess_qa_predictions(
                         and not token_is_max_context.get(str(start_index), False)
                     ):
                         continue
-
                     # start logit, and logit 값을 더하는 구조로 score를 정하게 된다.
                     prelim_predictions.append(
                         {
@@ -195,11 +172,12 @@ def postprocess_qa_predictions(
                                 offset_mapping[start_index][0],
                                 offset_mapping[end_index][1],
                             ),
-                            "score": start_logits[start_index] + end_logits[end_index],
+                            "score": start_logits[start_index] + end_logits[end_index], # post-processing component 1, score를 정하는 방식
                             "start_logit": start_logits[start_index],
                             "end_logit": end_logits[end_index],
                         }
                     )
+
 
         # score 순으로 정렬해서 가장 좋은 `n_best_size` predictions만 유지합니다. 
         predictions = sorted(
@@ -214,8 +192,7 @@ def postprocess_qa_predictions(
 
         for pred in predictions:
             offsets = pred.pop("offsets")
-            #pred["text"] = postprocess(pos_data, context, offsets)
-            pred["text"] = context[offsets[0]:offsets[1]]
+            pred["text"] = postprocess(pos_data, context, offsets)
             
         # rare edge case에는 null이 아닌 예측이 하나도 없으며 failure를 피하기 위해 fake prediction을 만듭니다.
         if len(predictions) == 0 or (
@@ -225,8 +202,21 @@ def postprocess_qa_predictions(
                 0, {"text": "empty", "start_logit": 0.0, "end_logit": 0.0, "score": 0.0}
             )
 
+        # 모든 점수의 소프트맥스를 계산합니다(we do it with numpy to stay independent from torch/tf in this file, using the LogSumExp trick).
+        # 하나의 example을 통해서 구한 여러개의 prediction score들을 (start logit + end logit) 대상으로 softmax를 진행한다.
+        scores = np.array([pred.pop("score") for pred in predictions])
+        exp_scores = np.exp(scores - np.max(scores))
+        probs = exp_scores / exp_scores.sum()
+
+        # 예측값에 확률을 포함합니다.
+        # softmax를 통해서 구한 probability 값을 추가한다.
+        for prob, pred in zip(probs, predictions):
+            pred["probability"] = prob
+
+        all_predictions[example["id"]] = predictions[0]["text"]
+
         # np.float를 다시 float로 casting -> `predictions`은 JSON-serializable 가능
-        n_best_predictions = [
+        all_nbest_json[example["id"]] = [
             {
                 k: (
                     float(v)
@@ -237,24 +227,6 @@ def postprocess_qa_predictions(
             }
             for pred in predictions
         ]
-
-        if example["id"] not in all_nbest_json : 
-            all_nbest_json[example["id"]] = []
-        all_nbest_json[example["id"]].extend(n_best_predictions)
-            
-    for ids in all_nbest_json.keys() :
-        n_best = all_nbest_json[ids]
-        scores = np.array([pred.pop("score") for pred in n_best])
-        ranks = np.argsort(scores)[::-1]
-
-        exp_scores = np.exp(scores - np.max(scores))
-        probs = exp_scores / exp_scores.sum()
-
-        for prob, pred in zip(probs, n_best):
-            pred["probability"] = float(prob)
-
-        all_nbest_json[ids] = [n_best[pred_ids] for pred_ids in ranks[:n_best_size]]    
-        all_predictions[ids] = all_nbest_json[ids][0]["text"] 
 
     # output_dir이 있으면 모든 dicts를 저장합니다.
     if output_dir is not None:
@@ -270,6 +242,7 @@ def postprocess_qa_predictions(
             if prefix is None
             else f"nbest_predictions_{prefix}".json,
         )
+
 
         logger.info(f"Saving predictions to {prediction_file}.")
         with open(prediction_file, "w", encoding="utf-8") as writer:

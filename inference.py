@@ -1,4 +1,5 @@
 import collections
+import importlib
 import logging
 import os
 import sys
@@ -53,7 +54,7 @@ def main():
         (ModelArguments, DataTrainingArguments, LoggingArguments, TrainingArguments)
     )
     model_args, data_args, log_args, training_args = parser.parse_args_into_dataclasses()
-
+    
     load_dotenv(dotenv_path=log_args.dotenv_path)
     WANDB_AUTH_KEY = os.getenv("WANDB_AUTH_KEY")
     wandb.login(key=WANDB_AUTH_KEY)
@@ -61,7 +62,7 @@ def main():
     wandb.init(
         entity="sangha0411",
         project=log_args.project_name,
-        name=log_args.wandb_name + '/inference',
+        name=model_args.model_name_or_path + '/inference',
         group=log_args.group_name,
     )
     wandb.config.update(training_args)
@@ -101,7 +102,9 @@ def main():
     )
 
     print('\nStep2 : Make Model and Load Weight\n')
-    model = SDSNetForQuestionAnswering(model_name='klue/roberta-large', 
+    model_module = importlib.import_module('model')
+    model_architecture = getattr(model_module, log_args.group_name)
+    model = model_architecture(model_name='klue/roberta-large', 
         data_args=data_args, 
         config=config)
     checkpoint = torch.load(os.path.join(model_args.model_name_or_path, 'pytorch_model.bin'))
@@ -147,7 +150,7 @@ def run_sparse_retrieval(
                 "context": Value(dtype="string", id=None),
                 "id": Value(dtype="string", id=None),
                 "question": Value(dtype="string", id=None),
-                "top_k" : Value(dtype="int32", id=None)
+                #"top_k" : Value(dtype="int32", id=None)
             }
         )
 
@@ -165,7 +168,7 @@ def run_sparse_retrieval(
                 ),
                 "context": Value(dtype="string", id=None),
                 "id": Value(dtype="string", id=None),
-                "top_k" : Value(dtype="int32", id=None),
+                #"top_k" : Value(dtype="int32", id=None),
                 "question": Value(dtype="string", id=None),
             }
         )
@@ -221,7 +224,7 @@ def run_mrc(
         # evaluation을 위해, prediction을 context의 substring으로 변환해야합니다.
         # corresponding example_id를 유지하고 offset mappings을 저장해야합니다.
         tokenized_examples["example_id"] = []
-        tokenized_examples["example_top_k"] = []
+        #tokenized_examples["example_top_k"] = []
 
         for i in range(len(tokenized_examples["input_ids"])):
             # sequence id를 설정합니다 (to know what is the context and what is the question).
@@ -231,7 +234,7 @@ def run_mrc(
             # 하나의 example이 여러개의 span을 가질 수 있습니다.
             sample_index = sample_mapping[i]
             tokenized_examples["example_id"].append(examples["id"][sample_index])
-            tokenized_examples["example_top_k"].append(examples["top_k"][sample_index])
+            #tokenized_examples["example_top_k"].append(examples["top_k"][sample_index])
 
             # context의 일부가 아닌 offset_mapping을 None으로 설정하여 토큰 위치가 컨텍스트의 일부인지 여부를 쉽게 판별할 수 있습니다.
             tokenized_examples["offset_mapping"][i] = [
@@ -285,16 +288,10 @@ def run_mrc(
         if training_args.do_predict:
             return formatted_predictions
         elif training_args.do_eval:
-            # 각 id에 정답 answer text 저장
-            references = []
-            id_set = set()
-            for ex in datasets["validation"] :
-                if ex["id"] in id_set :
-                    continue
-                    
-                id_set.add(ex["id"])
-                references.append({"id" : ex["id"], "answers" : ex[answer_column_name]})
-
+            references = [
+                {"id": ex["id"], "answers": ex[answer_column_name]}
+                for ex in datasets["validation"]
+            ]
             return EvalPrediction(
                 predictions=formatted_predictions, label_ids=references
             )

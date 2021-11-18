@@ -1,15 +1,14 @@
 import logging
+import importlib
 import os
 import sys
 
 from typing import List, Callable, NoReturn, NewType, Any
-import dataclasses
-from datasets import load_metric, load_from_disk, Dataset, DatasetDict
-
-import torch
-from transformers import AutoConfig, AutoTokenizer, AutoModelForQuestionAnswering
+from datasets import load_metric, load_from_disk, DatasetDict
 
 from transformers import (
+    AutoConfig,
+    AutoTokenizer,
     DataCollatorWithPadding,
     EvalPrediction,
     HfArgumentParser,
@@ -17,12 +16,8 @@ from transformers import (
     set_seed,
 )
 
-from tokenizers import Tokenizer
-from tokenizers.models import WordPiece
-
 from utils_qa import postprocess_qa_predictions, check_no_error
 from trainer_qa import QuestionAnsweringTrainer
-from retrieval import SparseRetrieval
 
 from arguments import (
     ModelArguments,
@@ -54,10 +49,21 @@ def main():
     WANDB_AUTH_KEY = os.getenv("WANDB_AUTH_KEY")
     wandb.login(key=WANDB_AUTH_KEY)
 
+    batch_size = training_args.per_device_train_batch_size
+    epochs = training_args.num_train_epochs
+    learning_rate = training_args.learning_rate
+    warmup_steps = training_args.warmup_steps
+    weight_decay = training_args.weight_decay
+
+    wandb_name = f"batch_size:{batch_size}_epochs:{epochs}_lr:{learning_rate}_warmp_steps:{warmup_steps}_weight_decay:{weight_decay}"
+
+    training_args.output_dir = os.path.join(training_args.output_dir, log_args.group_name, wandb_name)
+    print('Output Directory : %s' %training_args.output_dir)
+
     wandb.init(
         entity="sangha0411",
         project=log_args.project_name,
-        name=log_args.wandb_name + '/train',
+        name=wandb_name + '/train',
         group=log_args.group_name,
     )
     wandb.config.update(training_args)
@@ -114,7 +120,9 @@ def main():
 
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, use_fast=True)
 
-    model = SDSNetForQuestionAnswering(model_name=model_args.model_name_or_path, 
+    model_module = importlib.import_module('model')
+    model_architecture = getattr(model_module, log_args.group_name)
+    model = model_architecture(model_name=model_args.model_name_or_path, 
         data_args=data_args, 
         config=config)
 
@@ -173,7 +181,7 @@ def run_mrc(
             stride=data_args.doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            #return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
+            return_token_type_ids=False,
             padding="max_length" if data_args.pad_to_max_length else False,
         )
 
@@ -328,9 +336,9 @@ def run_mrc(
         formatted_predictions = [
             {"id": k, "prediction_text": v} for k, v in predictions.items()
         ]
+
         if training_args.do_predict:
             return formatted_predictions
-
         elif training_args.do_eval:
             references = [
                 {"id": ex["id"], "answers": ex[answer_column_name]}

@@ -312,9 +312,10 @@ class MultiNetForQuestionAnswering(RobertaPreTrainedModel):
 
         cls_output = sequence_output[:,0] # (batch_size, hidden_size)
         flags = self.flag_outputs(cls_output) # (batch_size, 1)
+        flags_logits = torch.sigmoid(flags.squeeze(-1))
+        
         flags_loss = None
         if doc_flags is not None :
-            flags_logits = torch.sigmoid(flags.squeeze(-1))
             loss_bin = nn.BCELoss()
             flags_loss = loss_bin(flags_logits, doc_flags.float())
 
@@ -354,7 +355,7 @@ class MultiNetForQuestionAnswering(RobertaPreTrainedModel):
             loss=total_loss,
             start_logits=start_logits,
             end_logits=end_logits,
-            doc_logits=flags,
+            doc_logits=flags_logits,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )

@@ -95,9 +95,9 @@ def postprocess_qa_predictions(
 ):
 
     assert (
-        len(predictions) == 2
-    ), "`predictions` should be a tuple with two elements (start_logits, end_logits)."
-    all_start_logits, all_end_logits = predictions
+        len(predictions) == 3
+    ), "`predictions` should be a tuple with two elements (doc_logits, start_logits, end_logits)."
+    all_doc_logits, all_start_logits, all_end_logits = predictions
 
     assert len(predictions[0]) == len(
         features
@@ -127,6 +127,11 @@ def postprocess_qa_predictions(
 
         # 현재 example에 대한 모든 feature 생성합니다.
         for feature_index in feature_indices:
+
+            doc_logits = all_doc_logits[feature_index][0]
+            if doc_logits < 0.5 :
+                continue
+
             # 각 featureure에 대한 모든 prediction을 가져옵니다.
             start_logits = all_start_logits[feature_index] # (seq_size,)
             end_logits = all_end_logits[feature_index] # (seq_size,)

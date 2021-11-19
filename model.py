@@ -58,8 +58,14 @@ class LSTMHead(nn.Module) :
 
     def forward(self, x) :
         batch_size = x.shape[0]
-        h_input = torch.zeros((2*self.layer_size, batch_size, self.intermediate_size)).cuda()
-        c_input = torch.zeros((2*self.layer_size, batch_size, self.intermediate_size)).cuda()
+
+        h_input = torch.zeros((2*self.layer_size, batch_size, self.intermediate_size))
+        c_input = torch.zeros((2*self.layer_size, batch_size, self.intermediate_size))
+
+        if torch.cuda.is_available() :
+            h_input = h_input.cuda()
+            c_input = c_input.cuda()
+
         y, (h_output, c_output) = self.lstm(x, (h_input,c_input))
         return y
 

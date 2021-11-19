@@ -3,7 +3,27 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import RobertaModel, RobertaPreTrainedModel
-from transformers.modeling_outputs import QuestionAnsweringModelOutput
+
+from dataclasses import dataclass
+from typing import Optional, Tuple
+from transformers.file_utils import ModelOutput
+
+@dataclass
+class QuestionAnsweringModelOutput(ModelOutput):
+    loss: Optional[torch.FloatTensor] = None
+    start_logits: torch.FloatTensor = None
+    end_logits: torch.FloatTensor = None
+    hidden_states: Optional[Tuple[torch.FloatTensor]] = None
+    attentions: Optional[Tuple[torch.FloatTensor]] = None
+
+@dataclass
+class MultiModelOutput(ModelOutput):
+    loss: Optional[torch.FloatTensor] = None
+    doc_logits : torch.FloatTensor = None
+    start_logits: torch.FloatTensor = None
+    end_logits: torch.FloatTensor = None
+    hidden_states: Optional[Tuple[torch.FloatTensor]] = None
+    attentions: Optional[Tuple[torch.FloatTensor]] = None
 
 class ConvLayer(nn.Module) :
     def __init__(self, seq_size, feature_size, intermediate_size) :
@@ -242,3 +262,100 @@ class LSTMForQuestionAnswering(RobertaPreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
+
+
+
+
+class MultiNetForQuestionAnswering(RobertaPreTrainedModel):
+    def __init__(self, model_name, data_args, config):
+        super(MultiNetForQuestionAnswering, self).__init__(config)
+        self.num_labels = config.num_labels
+        self.bert = RobertaModel.from_pretrained(model_name, 
+            config=config, 
+            add_pooling_layer=False
+        )
+
+        self.flag_outputs = nn.Linear(config.hidden_size, 1)
+        self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
+
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        head_mask=None,
+        inputs_embeds=None,
+        start_positions=None,
+        end_positions=None,
+        doc_flags=None,
+        output_attentions=None,
+        output_hidden_states=None,
+        return_dict=None,
+    ):
+
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        outputs = self.bert(
+            input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+
+        sequence_output = outputs[0] # (batch_size, seq_size, hidden_size) : [CLS] Token
+
+        cls_output = sequence_output[:,0] # (batch_size, hidden_size)
+        flags = self.flag_outputs(cls_output) # (batch_size, 1)
+        flags_loss = None
+        if doc_flags is not None :
+            flags_logits = torch.sigmoid(flags.squeeze(-1))
+            loss_bin = nn.BCELoss()
+            flags_loss = loss_bin(flags_logits, doc_flags.float())
+
+        logits = self.qa_outputs(sequence_output) # (batch_size, seq_size, label_size=2)
+        start_logits, end_logits = logits.split(1, dim=-1)  
+        start_logits = start_logits.squeeze(-1).contiguous() # (batch_size, seq_size) 
+        end_logits = end_logits.squeeze(-1).contiguous() # (batch_size, seq_size)
+
+        total_loss = None
+        # start_positions : (batch_size, )
+        # end_positions : (batch_size, )
+        if start_positions is not None and end_positions is not None:
+            # If we are on multi-GPU, split add a dimension
+            if len(start_positions.size()) > 1:
+                start_positions = start_positions.squeeze(-1)
+            if len(end_positions.size()) > 1:
+                end_positions = end_positions.squeeze(-1)
+            # sometimes the start/end positions are outside our model inputs, we ignore these terms
+            ignored_index = start_logits.size(1)
+            start_positions = start_positions.clamp(0, ignored_index)
+            end_positions = end_positions.clamp(0, ignored_index)
+
+            # make answer token logits bigger, find answer position
+            loss_fct = nn.CrossEntropyLoss(ignore_index=ignored_index) 
+            start_loss = loss_fct(start_logits, start_positions) 
+            end_loss = loss_fct(end_logits, end_positions)
+            total_loss = (start_loss + end_loss) / 2
+
+            if doc_flags is not None :
+                total_loss += flags_loss
+    
+        if not return_dict:
+            output = (start_logits, end_logits) + outputs[2:]
+            return ((total_loss,) + output) if total_loss is not None else output
+
+        return MultiModelOutput(
+            loss=total_loss,
+            start_logits=start_logits,
+            end_logits=end_logits,
+            doc_logits=flags,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
+

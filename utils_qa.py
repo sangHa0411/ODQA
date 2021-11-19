@@ -243,7 +243,6 @@ def postprocess_qa_predictions(
             else f"nbest_predictions_{prefix}".json,
         )
 
-
         logger.info(f"Saving predictions to {prediction_file}.")
         with open(prediction_file, "w", encoding="utf-8") as writer:
             writer.write(

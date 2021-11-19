@@ -26,7 +26,6 @@ from arguments import (
     TokenizerArguments,
 )
 
-from model import SDSNetForQuestionAnswering
 from tokenizer import TokenizerOptimization
 from preprocessor import Preprocessor
 from dotenv import load_dotenv
@@ -63,8 +62,8 @@ def main():
     wandb.init(
         entity="sangha0411",
         project=log_args.project_name,
-        name=wandb_name + '/train',
-        group=log_args.group_name,
+        name=wandb_name,
+        group=log_args.group_name + '/train',
     )
     wandb.config.update(training_args)
 
@@ -194,6 +193,7 @@ def run_mrc(
         # 데이터셋에 "start position", "enc position" label을 부여합니다.
         tokenized_examples["start_positions"] = []
         tokenized_examples["end_positions"] = []
+        tokenized_examples["doc_flags"] = []
 
         for i, offsets in enumerate(offset_mapping):
             input_ids = tokenized_examples["input_ids"][i]
@@ -210,6 +210,7 @@ def run_mrc(
             if len(answers["answer_start"]) == 0:
                 tokenized_examples["start_positions"].append(cls_index)
                 tokenized_examples["end_positions"].append(cls_index)
+                tokenized_examples["doc_flags"].append(0)
             else:
                 # text에서 정답의 Start/end character index
                 start_char = answers["answer_start"][0]
@@ -232,6 +233,7 @@ def run_mrc(
                 ):
                     tokenized_examples["start_positions"].append(cls_index)
                     tokenized_examples["end_positions"].append(cls_index)
+                    tokenized_examples["doc_flags"].append(0)
                 else:
                     # token_start_index 및 token_end_index를 answer의 끝으로 이동합니다.
                     # Note: answer가 마지막 단어인 경우 last offset을 따라갈 수 있습니다(edge case).
@@ -244,6 +246,7 @@ def run_mrc(
                     while offsets[token_end_index][1] >= end_char:
                         token_end_index -= 1
                     tokenized_examples["end_positions"].append(token_end_index + 1)
+                    tokenized_examples["doc_flags"].append(1)
 
         return tokenized_examples
 
@@ -273,7 +276,6 @@ def run_mrc(
             stride=data_args.doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            #return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
             padding="max_length" if data_args.pad_to_max_length else False,
         )
 

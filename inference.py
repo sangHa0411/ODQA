@@ -62,8 +62,8 @@ def main():
     wandb.init(
         entity="sangha0411",
         project=log_args.project_name,
-        name=model_args.model_name_or_path + '/inference',
-        group=log_args.group_name,
+        name=model_args.model_name_or_path,
+        group=log_args.group_name + '/inference',
     )
     wandb.config.update(training_args)
 

@@ -77,7 +77,7 @@ class LSTMHead(nn.Module) :
                 nn.init.kaiming_uniform_(p)
 
     def forward(self, x) :
-        batch_size = x.shape[0]
+        batch_size = x.shape[0] 
 
         h_input = torch.zeros((2*self.layer_size, batch_size, self.intermediate_size))
         c_input = torch.zeros((2*self.layer_size, batch_size, self.intermediate_size))
@@ -262,8 +262,6 @@ class LSTMForQuestionAnswering(RobertaPreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
-
-
 
 
 class MultiNetForQuestionAnswering(RobertaPreTrainedModel):

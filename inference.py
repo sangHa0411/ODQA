@@ -38,7 +38,6 @@ from arguments import (
     DataTrainingArguments,
 )
 
-from model import SDSNetForQuestionAnswering
 from preprocessor import Preprocessor
 from dotenv import load_dotenv
 import wandb
@@ -62,11 +61,10 @@ def main():
     wandb.init(
         entity="sangha0411",
         project=log_args.project_name,
-        name=model_args.model_name_or_path,
+        name=model_args.model_name_or_path + '_topk : ' + str(data_args.top_k_retrieval),
         group=log_args.group_name + '/inference',
     )
     wandb.config.update(training_args)
-
 
     print(f"model is from {model_args.model_name_or_path}")
     print(f"data is from {data_args.dataset_name}")
@@ -150,7 +148,6 @@ def run_sparse_retrieval(
                 "context": Value(dtype="string", id=None),
                 "id": Value(dtype="string", id=None),
                 "question": Value(dtype="string", id=None),
-                #"top_k" : Value(dtype="int32", id=None)
             }
         )
 
@@ -168,14 +165,12 @@ def run_sparse_retrieval(
                 ),
                 "context": Value(dtype="string", id=None),
                 "id": Value(dtype="string", id=None),
-                #"top_k" : Value(dtype="int32", id=None),
                 "question": Value(dtype="string", id=None),
             }
         )
 
     datasets = DatasetDict({"validation": Dataset.from_pandas(df, features=f)})
     return datasets
-
 
 def run_mrc(
     data_args: DataTrainingArguments,
